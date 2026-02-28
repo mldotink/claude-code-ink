@@ -41,25 +41,41 @@ Pipe through `jq` for readable output when showing results to the user.
 
 ## Schema introspection
 
-If you need to discover or verify the schema, run an introspection query:
+**Introspection is open — no authentication required.** Always introspect first if you're unsure about field names, arguments, or types. The live schema is the source of truth.
+
+List all queries and mutations:
 
 ```bash
 curl -s https://api.ml.ink/graphql \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $INK_API_KEY" \
-  -d '{"query": "{ __schema { queryType { fields { name description args { name type { name kind ofType { name kind } } } } } mutationType { fields { name description args { name type { name kind ofType { name kind } } } } } } }"}' | jq
+  -d '{"query": "{ __schema { queryType { fields { name args { name type { name kind ofType { name kind ofType { name kind } } } } } } mutationType { fields { name args { name type { name kind ofType { name kind ofType { name kind } } } } } } } }"}' | jq
 ```
 
-For a specific type's fields:
+Inspect a specific type (e.g. Service, UpdateServiceInput, LogsInput):
 
 ```bash
 curl -s https://api.ml.ink/graphql \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $INK_API_KEY" \
   -d '{"query": "{ __type(name: \"Service\") { fields { name type { name kind ofType { name kind } } } } }"}' | jq
 ```
 
-**Always introspect first if unsure about field names or arguments.** The schema is the source of truth.
+Inspect an input type:
+
+```bash
+curl -s https://api.ml.ink/graphql \
+  -H "Content-Type: application/json" \
+  -d '{"query": "{ __type(name: \"UpdateServiceInput\") { inputFields { name type { name kind ofType { name kind ofType { name kind } } } } } }"}' | jq
+```
+
+Inspect enums:
+
+```bash
+curl -s https://api.ml.ink/graphql \
+  -H "Content-Type: application/json" \
+  -d '{"query": "{ __type(name: \"LogType\") { enumValues { name } } }"}' | jq
+```
+
+**When in doubt, introspect.** It costs nothing and gives you the exact schema.
 
 ## Key queries
 

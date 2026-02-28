@@ -1,74 +1,126 @@
 ---
 name: ink-troubleshoot
-description: Debug a failing Ink (ml.ink) deployment. Use when a deployment fails, crashes, or behaves unexpectedly.
+description: Debug a failing Ink (ml.ink) deployment. Use when a deploy fails, a service crashes, or something isn't working.
 argument-hint: "[service-name]"
+allowed-tools: Bash, Read, Grep
 ---
 
 # Troubleshoot Ink Deployment
 
-Help the user debug a failing or misbehaving service on Ink (ml.ink).
+Debug failing services on Ink (ml.ink) using the GraphQL API.
 
-## Steps
+## Prerequisites
 
-### 1. Identify the service
+Verify `$INK_API_KEY` is set.
 
-If `$ARGUMENTS` is provided, use that as the service name. Otherwise, call `mcp__ink__list_services` and ask the user which service to troubleshoot.
+## Step 1: Get service status
 
-### 2. Get service details
+```bash
+curl -s https://api.ml.ink/graphql \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $INK_API_KEY" \
+  -d '{"query": "{ listServices(first: 50) { nodes { id name status errorMessage fqdn port memory vcpus repo branch gitProvider } } }"}' | jq
+```
 
-Call `mcp__ink__get_service(name: "<service-name>")` and check:
-- **status**: What state is the service in?
-  - `queued` — Waiting to build. If stuck, there may be a build queue issue.
-  - `building` — Build in progress. Check build logs.
-  - `deploying` — Container starting. Check runtime logs.
-  - `active` — Running but maybe returning errors.
-  - `failed` — Build or deploy failed. Check logs.
-  - `crashed` — Container crashed after starting. Check runtime logs.
-  - `suspended` — Service was suspended (billing or admin action).
+Find the failing service (use `$ARGUMENTS` if provided). Note its `id`, `status`, and `errorMessage`.
 
-### 3. Check logs
+## Step 2: Diagnose by status
 
-Based on the status, guide the user:
+### `failed` — Build or deploy error
+Check build logs first:
+```bash
+curl -s https://api.ml.ink/graphql \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $INK_API_KEY" \
+  -d '{"query": "{ serviceLogs(input: { serviceId: \"<ID>\", logType: BUILD, limit: 200 }) { entries { message } } }"}' \
+  | jq '.data.serviceLogs.entries[] | .message' -r
+```
 
-**Build failures** (`failed` during build):
-- Check build logs for errors
-- Common issues:
-  - Missing dependencies in package.json / requirements.txt
-  - Wrong Node.js / Python version
-  - Build command failing
-  - Dockerfile syntax errors
+Common build failures:
+- **Missing dependencies**: package.json missing a dep, requirements.txt incomplete
+- **Wrong runtime version**: needs specific Node/Python version
+- **Build command fails**: check if custom buildCommand is needed
+- **Dockerfile errors**: syntax issues, missing base image
 
-**Runtime crashes** (`crashed`):
-- Check runtime logs
-- Common issues:
-  - Missing environment variables
-  - Wrong port configuration (app must listen on the port configured in the service)
-  - Insufficient memory (increase memory allocation)
-  - Missing runtime dependencies
+### `crashed` — Container exited after starting
+Check runtime logs:
+```bash
+curl -s https://api.ml.ink/graphql \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $INK_API_KEY" \
+  -d '{"query": "{ serviceLogs(input: { serviceId: \"<ID>\", logType: RUNTIME, limit: 200 }) { entries { timestamp level message } } }"}' \
+  | jq '.data.serviceLogs.entries[] | "\(.timestamp) \(.message)"' -r
+```
 
-**Deployment stuck** (`deploying` for too long):
-- The container is starting but health check is failing
-- Check that the app listens on the correct port
-- Check that the app starts within the timeout period
-- Ensure the app binds to `0.0.0.0`, not `127.0.0.1` or `localhost`
+Common crash causes:
+- **Missing env vars**: app expects env vars that aren't set
+- **Wrong port**: app listens on a different port than configured. Must match the `port` in service config.
+- **Binding to localhost**: app must bind to `0.0.0.0`, not `127.0.0.1` or `localhost`
+- **Out of memory**: increase memory allocation (check metrics if the service ran briefly)
 
-### 4. Check metrics
+### `deploying` (stuck) — Health check failing
+The container started but isn't responding on the configured port:
+- Verify the app actually listens on the configured port
+- Check it binds to `0.0.0.0`
+- Check runtime logs for startup errors
+- Ensure the app starts within the timeout (~60s)
 
-Call the relevant tools to check resource usage:
-- Is the service running out of memory? Suggest increasing memory.
-- Is CPU maxed out? Suggest increasing CPU allocation.
+### `queued` (stuck) — Build queue issue
+Usually resolves on its own. If stuck for more than a few minutes, the build system may be at capacity.
 
-### 5. Suggest fixes
+## Step 3: Check resource usage
 
-Based on the diagnosis:
-1. If env vars are missing → help set them with `mcp__ink__update_service`
-2. If port is wrong → update the service port configuration
-3. If memory is insufficient → increase memory allocation
-4. If build fails → help fix the code/config and re-push
-5. If the app binds to localhost → fix to bind to `0.0.0.0`
+If the service ran briefly before crashing, check metrics:
+```bash
+curl -s https://api.ml.ink/graphql \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $INK_API_KEY" \
+  -d '{"query": "{ serviceMetrics(serviceId: \"<ID>\", timeRange: ONE_HOUR) { memoryUsageMB { dataPoints { timestamp value } } memoryLimitMB cpuLimitVCPUs } }"}' | jq
+```
 
-### 6. Verify the fix
+If memory usage hits the limit, recommend increasing memory.
 
-After applying fixes, monitor the redeployment:
-1. Check status progression: `building` → `deploying` → `active`
-2. Confirm the service URL is responding
+## Step 4: Apply fix
+
+Once the issue is identified, fix it:
+
+**Update env vars:**
+```bash
+curl -s https://api.ml.ink/graphql \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $INK_API_KEY" \
+  -d '{
+    "query": "mutation { updateService(input: { name: \"<NAME>\", envVars: [{ key: \"KEY\", value: \"VALUE\" }] }) { serviceId status } }"
+  }' | jq
+```
+
+**Increase memory:**
+```bash
+curl -s https://api.ml.ink/graphql \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $INK_API_KEY" \
+  -d '{
+    "query": "mutation { updateService(input: { name: \"<NAME>\", memory: \"1024Mi\" }) { serviceId status } }"
+  }' | jq
+```
+
+**Fix port:**
+```bash
+curl -s https://api.ml.ink/graphql \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $INK_API_KEY" \
+  -d '{
+    "query": "mutation { updateService(input: { name: \"<NAME>\", port: 8080 }) { serviceId status } }"
+  }' | jq
+```
+
+After applying the fix, `updateService` triggers a redeploy. Monitor status until it reaches `active`.
+
+## Step 5: Verify
+
+Check the service is healthy:
+```bash
+curl -sI "https://<FQDN>" | head -5
+```
+
+If still failing, repeat from Step 1 with the new logs.

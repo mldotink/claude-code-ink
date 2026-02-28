@@ -7,38 +7,31 @@ allowed-tools: Bash
 
 # Ink Service Status
 
-Check and manage services deployed on Ink (ml.ink) via the GraphQL API at `https://api.ml.ink/graphql`.
+Check services on Ink (ml.ink) via `POST https://api.ml.ink/graphql`.
 
-## Prerequisites
+Auth: `Authorization: Bearer $INK_API_KEY`. Check it's set first.
 
-Check `$INK_API_KEY` is set. Auth: `Authorization: Bearer $INK_API_KEY`.
+## Step 1: Introspect
 
-## Step 1: Discover available queries
+Run schema introspection (no auth needed) to discover the exact queries, return types, and available fields for services, logs, metrics, and billing.
 
-Introspect the schema (no auth needed) to find the exact queries and their return types:
-
-```bash
-curl -s https://api.ml.ink/graphql \
-  -H "Content-Type: application/json" \
-  -d '{"query": "{ __schema { queryType { fields { name args { name type { name kind ofType { name } } } } } } }"}' | jq
-```
-
-Then inspect the return types to learn what fields are available on services, logs, metrics, billing, etc.
-
-## Step 2: Execute the relevant query
+## Step 2: Execute
 
 Based on what the user asked for:
 
-- **List services**: query the service list, present as a table (name, status, URL, resources)
-- **Service details**: query a specific service by name or ID, show full config
-- **Logs**: query service logs. Two log types exist: build logs and runtime logs. Inspect the enum to confirm values.
-- **Metrics**: query service metrics for a time range. Inspect the time range enum for valid values. Summarize CPU %, memory usage vs limit, trends.
-- **Billing**: query workspace billing and usage breakdown. Format cents as dollars.
-- **Resource limits**: query limits and current usage, show usage vs limits.
+**Services**: query the service list or details. Present as a table with name, status, URL, memory, vCPUs. Statuses: `queued`, `building`, `deploying`, `active`, `failed`, `crashed`, `suspended`.
+
+**Logs**: query service logs. Two log types exist — introspect the log type enum. Build logs show build output; runtime logs show container stdout/stderr.
+
+**Metrics**: query service metrics for a time range — introspect the time range enum for valid values. Summarize current CPU %, memory MB vs limit, trend direction.
+
+**Billing**: query workspace billing and usage breakdown. All monetary values are in **cents** — divide by 100 for dollars. Tiers: `free` (5 services), `hobby` (25 services), `pro` (200 services).
+
+**Resource limits**: query limits and current usage. Show as usage/max for services, memory, vCPUs.
 
 ## Presentation
 
-- Format service lists as tables
-- Format logs as plain text, most recent last
-- Summarize metrics (don't dump raw data points unless asked)
-- Format costs as dollars (divide cents by 100)
+- Service lists: table format
+- Logs: plain text, chronological
+- Metrics: summarize trends, don't dump raw data points unless asked
+- Costs: always show as dollars, not cents

@@ -16,7 +16,7 @@ POST https://api.ml.ink/graphql
 
 ## Authentication
 
-Every request requires an API key in the Authorization header:
+All data queries and mutations require an API key:
 
 ```
 Authorization: Bearer <API_KEY>
@@ -25,6 +25,8 @@ Authorization: Bearer <API_KEY>
 API keys have the format `dk_live_<64 hex chars>`. Users generate them from the Ink dashboard (Settings > API Keys) or via the `createAPIKey` mutation if already authenticated.
 
 **The API key should be stored in the `INK_API_KEY` environment variable.** Always check for `$INK_API_KEY` before making requests. If not set, tell the user to set it.
+
+**Exception: schema introspection (`__schema`, `__type`) requires no authentication.** You can always introspect the schema without a token. See the "Schema introspection" section below.
 
 ## Making requests
 

@@ -7,91 +7,38 @@ allowed-tools: Bash
 
 # Ink Service Status
 
-Check and manage services deployed on Ink (ml.ink).
+Check and manage services deployed on Ink (ml.ink) via the GraphQL API at `https://api.ml.ink/graphql`.
 
 ## Prerequisites
 
-Verify `$INK_API_KEY` is set. If not:
-> Set your Ink API key: `export INK_API_KEY=dk_live_...`
+Check `$INK_API_KEY` is set. Auth: `Authorization: Bearer $INK_API_KEY`.
 
-## List all services
+## Step 1: Discover available queries
 
-```bash
-curl -s https://api.ml.ink/graphql \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $INK_API_KEY" \
-  -d '{"query": "{ listServices(first: 50) { nodes { id name status fqdn memory vcpus repo branch customDomain updatedAt } totalCount } }"}' | jq
-```
-
-Present as a table showing name, status, URL, resources.
-
-## Service details
-
-If the user asks about a specific service (`$ARGUMENTS`), get its full details:
+Introspect the schema (no auth needed) to find the exact queries and their return types:
 
 ```bash
 curl -s https://api.ml.ink/graphql \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $INK_API_KEY" \
-  -d '{
-    "query": "{ listServices(first: 50) { nodes { id name status fqdn errorMessage memory vcpus repo branch port gitProvider envVars { key } commitHash customDomain customDomainStatus createdAt updatedAt } } }"
-  }' | jq '.data.listServices.nodes[] | select(.name == "'$ARGUMENTS'")'
+  -d '{"query": "{ __schema { queryType { fields { name args { name type { name kind ofType { name } } } } } } }"}' | jq
 ```
 
-## View logs
+Then inspect the return types to learn what fields are available on services, logs, metrics, billing, etc.
 
-### Build logs
-```bash
-SERVICE_ID="<get from service details>"
-curl -s https://api.ml.ink/graphql \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $INK_API_KEY" \
-  -d '{
-    "query": "{ serviceLogs(input: { serviceId: \"'$SERVICE_ID'\", logType: BUILD, limit: 100 }) { entries { timestamp message } hasMore } }"
-  }' | jq '.data.serviceLogs.entries[] | .message' -r
-```
+## Step 2: Execute the relevant query
 
-### Runtime logs
-```bash
-curl -s https://api.ml.ink/graphql \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $INK_API_KEY" \
-  -d '{
-    "query": "{ serviceLogs(input: { serviceId: \"'$SERVICE_ID'\", logType: RUNTIME, limit: 100 }) { entries { timestamp level message } hasMore } }"
-  }' | jq '.data.serviceLogs.entries[] | "\(.timestamp) [\(.level)] \(.message)"' -r
-```
+Based on what the user asked for:
 
-## View metrics
+- **List services**: query the service list, present as a table (name, status, URL, resources)
+- **Service details**: query a specific service by name or ID, show full config
+- **Logs**: query service logs. Two log types exist: build logs and runtime logs. Inspect the enum to confirm values.
+- **Metrics**: query service metrics for a time range. Inspect the time range enum for valid values. Summarize CPU %, memory usage vs limit, trends.
+- **Billing**: query workspace billing and usage breakdown. Format cents as dollars.
+- **Resource limits**: query limits and current usage, show usage vs limits.
 
-```bash
-curl -s https://api.ml.ink/graphql \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $INK_API_KEY" \
-  -d '{
-    "query": "{ serviceMetrics(serviceId: \"'$SERVICE_ID'\", timeRange: ONE_HOUR) { cpuUsage { dataPoints { timestamp value } } memoryUsageMB { dataPoints { timestamp value } } memoryLimitMB cpuLimitVCPUs } }"
-  }' | jq
-```
+## Presentation
 
-Summarize: current CPU %, current memory MB / limit, trend over the period.
-
-## Billing & usage
-
-```bash
-curl -s https://api.ml.ink/graphql \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $INK_API_KEY" \
-  -d '{"query": "{ workspaceBilling { currentUsageCents estimatedBillCents subscription { tier status } spendingLimitCents suspended } usageBillBreakdown { memory { quantity unit totalCents } cpu { quantity unit totalCents } egress { quantity unit totalCents } currentBillCents periodStart periodEnd } }"}' | jq
-```
-
-Format costs as dollars (divide cents by 100).
-
-## Resource limits
-
-```bash
-curl -s https://api.ml.ink/graphql \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $INK_API_KEY" \
-  -d '{"query": "{ resourceLimits { tier maxVcpus maxMemoryMi maxServices usage { services memoryMi vcpus } } }"}' | jq
-```
-
-Show usage vs limits as a summary.
+- Format service lists as tables
+- Format logs as plain text, most recent last
+- Summarize metrics (don't dump raw data points unless asked)
+- Format costs as dollars (divide cents by 100)

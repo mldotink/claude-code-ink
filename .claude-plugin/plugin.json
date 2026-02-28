@@ -1,0 +1,15 @@
+{
+  "name": "ink",
+  "version": "0.1.0",
+  "description": "Deploy and manage services on Ink (ml.ink) — the deployment platform for MCP servers and web apps",
+  "author": {
+    "name": "Ink",
+    "url": "https://ml.ink"
+  },
+  "homepage": "https://ml.ink",
+  "repository": "https://github.com/mldotink/claude-code-ink",
+  "license": "MIT",
+  "keywords": ["deploy", "hosting", "mcp", "ink", "ml.ink"],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json"
+}
